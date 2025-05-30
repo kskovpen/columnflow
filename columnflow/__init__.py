@@ -55,7 +55,7 @@ if isinstance(flavor, str):
 # load contrib packages
 law.contrib.load(
     "arc", "awkward", "git", "htcondor", "numpy", "pyarrow", "telegram", "root", "slurm", "tasks",
-    "wlcg", "matplotlib", "slack", "mattermost",
+    "wlcg", "matplotlib", "slack"
 )
 
 # load flavor specific contrib packages
