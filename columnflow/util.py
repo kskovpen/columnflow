@@ -614,11 +614,11 @@ def four_vec(
         columns |= default_columns
 
     outp = set(
-        f"{obj}.{var}"
+        f"{obj}.{var}" if f"{obj}" != "DispVtx" else f"{obj}.vtx_{var}"
         for obj in collections
         for var in columns
     )
-
+    
     # manually remove MET eta and mass
     outp = outp.difference({"MET.eta", "MET.mass"})
 

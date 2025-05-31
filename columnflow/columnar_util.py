@@ -82,6 +82,11 @@ default_coffea_collections = {
         "check_attr": "metric_table",
         "skip_fields": "*Idx*G",
     },
+    "DispVtx": {
+        "type_name": "DispVtx",
+        "check_attr": "metric_table",
+        "skip_fields": "*Idx*G",
+    },
     "Tau": {
         "type_name": "Tau",
         "check_attr": "metric_table",
