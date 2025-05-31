@@ -125,7 +125,7 @@ class GetDatasetLFNs(DatasetTask, law.tasks.TransferLocalFile):
         tmp = law.LocalFileTarget(is_tmp=True)
         tmp.dump(lfns, indent=4, formatter="json")
         self.transfer(tmp)
-
+        
     def custom_get_dataset_lfns(
         self,
         dataset_key: str,
@@ -258,6 +258,7 @@ class GetDatasetLFNs(DatasetTask, law.tasks.TransferLocalFile):
 
                 # measure the time required to perform the stat query
                 input_file = target_cls(lfn.lstrip(os.sep) if is_local else lfn, fs=selected_fs)
+                if selected_fs == "custom_pnfs_fs": input_file.path = "/"+input_file.path
                 t1 = time.perf_counter()
                 input_stat = input_file.exists(stat=True)
                 duration = time.perf_counter() - t1
