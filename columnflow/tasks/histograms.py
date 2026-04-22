@@ -22,6 +22,7 @@ from columnflow.tasks.ml import MLEvaluation
 from columnflow.util import dev_sandbox
 from columnflow.hist_util import create_hist_from_variables
 
+logger = law.logger.get_logger(__file__)
 
 class CreateHistograms(
     ParamsCacheMixin,
@@ -393,6 +394,9 @@ class MergeHistograms(
 
             variable_hists = [h[variable_name] for h in hists]
             merged = sum(variable_hists[1:], variable_hists[0].copy())
+            if outputs["hists"][variable_name].exists(): # for the MH files that exist and give issues
+                outputs["hists"][variable_name].remove()
+                logger.warning("remove existing MergeHistorgram output")
             outputs["hists"][variable_name].dump(merged, formatter="pickle")
 
         # optionally remove inputs

@@ -237,7 +237,7 @@ def get_jec_config_default(self: Calibrator) -> DotDict:
     # name of the associated MET collection
     met_name="MET",
     # name of the associated Raw MET collection
-    raw_met_name="RawMET",
+    raw_met_name="RawMET", # RawPuppiMET for v15
     # custom uncertainty sources, defaults to config when empty
     uncertainty_sources=None,
     # toggle for propagation to MET

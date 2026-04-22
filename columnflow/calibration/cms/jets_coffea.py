@@ -259,8 +259,8 @@ def jec_coffea(
             jet_phi_only_l1,
             jet_pt_all_levels,
             jet_phi_all_levels,
-            events.RawMET.pt,
-            events.RawMET.phi,
+            events.RawMET.pt, # events.RawPuppiMET.pt,for v15
+            events.RawMET.phi, # events.RawPuppiMET.pt,for v15
         )
         events = set_ak_column_f32(events, "MET.pt", met_pt)
         events = set_ak_column_f32(events, "MET.phi", met_phi)
