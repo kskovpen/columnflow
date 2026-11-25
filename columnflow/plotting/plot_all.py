@@ -168,8 +168,9 @@ def plot_all(
     cms_label: str = "wip",
     whitespace_fraction: float = 0.3,
     magnitudes: float = 4,
+    ratio_mode: str = "data_mc",
     **kwargs,
-) -> tuple(plt.Figure, tuple(plt.Axes)):
+) -> tuple[plt.Figure, tuple[plt.Axes]]:
     """
     Function that calls multiple plotting methods based on two configuration dictionaries,
     *plot_config* and *style_config*.
@@ -179,6 +180,7 @@ def plot_all(
     "hist": hist.Hist or hist.Stack,
     "kwargs": dict (optional),
     "ratio_kwargs": dict (optional),
+    "ratio_only": bool (optional),
 
     The *style_config* expects fields (all optional):
     "gridspec_cfg": dict,
@@ -188,59 +190,106 @@ def plot_all(
     "cms_label_cfg": dict,
 
     :param plot_config: Dictionary that defines which plot methods will be called with which
-        key word arguments.
+        keyword arguments.
     :param style_config: Dictionary that defines arguments on how to style the overall plot.
     :param skip_ratio: Optional bool parameter to not display the ratio plot.
     :param skip_legend: Optional bool parameter to not display the legend.
     :param cms_label: Optional string parameter to set the CMS label text.
     :param whitespace_fraction: Optional float parameter that defines the ratio of which
-        the plot will consist of whitespace for the legend and labels
+        the plot will consist of whitespace for the legend and labels.
     :param magnitudes: Optional float parameter that defines the displayed ymin when plotting
         with a logarithmic scale.
+    :param ratio_mode: Defines the quantity shown in the lower panel:
+        "data_mc", "s_over_b", "s_over_sqrt_b", or "s_over_s_plus_b".
     :return: tuple of plot figure and axes
     """
+
     # general mplhep style
     plt.style.use(mplhep.style.CMS)
 
     # setup figure and axes
     rax = None
-    grid_spec = {"left": 0.15, "right": 0.95, "top": 0.95, "bottom": 0.1}
+
+    grid_spec = {
+        "left": 0.15,
+        "right": 0.95,
+        "top": 0.95,
+        "bottom": 0.1,
+    }
     grid_spec |= style_config.get("gridspec_cfg", {})
+
     if not skip_ratio:
-        grid_spec |= {"height_ratios": [3, 1], "hspace": 0}
-        fig, axs = plt.subplots(2, 1, gridspec_kw=grid_spec, sharex=True)
-        (ax, rax) = axs
+        grid_spec |= {
+            "height_ratios": [3, 1],
+            "hspace": 0,
+        }
+
+        fig, axs = plt.subplots(
+            2,
+            1,
+            gridspec_kw=grid_spec,
+            sharex=True,
+        )
+        ax, rax = axs
+
     else:
-        fig, ax = plt.subplots(gridspec_kw=grid_spec)
+        fig, ax = plt.subplots(
+            gridspec_kw=grid_spec,
+        )
         axs = (ax,)
 
-    # invoke all plots methods
+    # invoke all plot methods
     plot_methods = {
         func.__name__: func
-        for func in [draw_error_bands, draw_stack, draw_hist, draw_profile, draw_errorbars]
+        for func in [
+            draw_error_bands,
+            draw_stack,
+            draw_hist,
+            draw_profile,
+            draw_errorbars,
+        ]
     }
-    for key, cfg in plot_config.items():
-        # check if required fields are present
-        if "method" not in cfg:
-            raise ValueError(f"no method given in plot_cfg entry {key}")
-        if "hist" not in cfg:
-            raise ValueError(f"no histogram(s) given in plot_cfg entry {key}")
 
-        # invoke the method
+    for key, cfg in plot_config.items():
         method = cfg["method"]
         h = cfg["hist"]
-        if callable(method):
-            method(ax, h, **cfg.get("kwargs", {}))
-        else:
-            plot_methods[method](ax, h, **cfg.get("kwargs", {}))
 
-        # repeat for ratio axes if configured
+        # upper panel
+        if not cfg.get("ratio_only", False):
+            if callable(method):
+                method(
+                    ax,
+                    h,
+                    **cfg.get("kwargs", {}),
+                )
+            else:
+                plot_methods[method](
+                    ax,
+                    h,
+                    **cfg.get("kwargs", {}),
+                )
+
+        # lower panel
         if not skip_ratio and "ratio_kwargs" in cfg:
-            # take ratio_method if the ratio plot requires a different plotting method
-            method = cfg.get("ratio_method", method)
-            plot_methods[method](rax, h, **cfg.get("ratio_kwargs", {}))
+            ratio_method = cfg.get("ratio_method", method)
 
-    # axis styling
+            if callable(ratio_method):
+                ratio_method(
+                    rax,
+                    h,
+                    **cfg.get("ratio_kwargs", {}),
+                )
+            else:
+                plot_methods[ratio_method](
+                    rax,
+                    h,
+                    **cfg.get("ratio_kwargs", {}),
+                )
+
+    # ------------------------------------------------------------------
+    # Upper-axis styling
+    # ------------------------------------------------------------------
+
     ax_kwargs = {
         "ylabel": "Counts",
         "xlabel": "variable",
@@ -248,114 +297,263 @@ def plot_all(
     }
 
     # some default ylim settings based on yscale
-    log_y = style_config.get("ax_cfg", {}).get("yscale", "linear") == "log"
+    log_y = (
+        style_config.get("ax_cfg", {}).get("yscale", "linear") == "log"
+    )
 
-    ax_ymin = ax.get_ylim()[1] / 10**magnitudes if log_y else 0.0000001
-    ax_ymax = get_position(ax_ymin, ax.get_ylim()[1], factor=1 / (1 - whitespace_fraction), logscale=log_y)
-    ax_kwargs.update({"ylim": (ax_ymin, ax_ymax)})
+    ax_ymin = (
+        ax.get_ylim()[1] / 10**magnitudes
+        if log_y
+        else 0.0000001
+    )
+
+    ax_ymax = get_position(
+        ax_ymin,
+        ax.get_ylim()[1],
+        factor=1 / (1 - whitespace_fraction),
+        logscale=log_y,
+    )
+
+    ax_kwargs.update({
+        "ylim": (ax_ymin, ax_ymax),
+    })
 
     # prioritize style_config ax settings
-    ax_kwargs.update(style_config.get("ax_cfg", {}))
+    ax_kwargs.update(
+        style_config.get("ax_cfg", {}),
+    )
 
     # some settings cannot be handled by ax.set
-    xminorticks = ax_kwargs.pop("xminorticks", ax_kwargs.pop("minorxticks", None))
-    yminorticks = ax_kwargs.pop("yminorticks", ax_kwargs.pop("minoryticks", None))
+    xminorticks = ax_kwargs.pop(
+        "xminorticks",
+        ax_kwargs.pop("minorxticks", None),
+    )
+    yminorticks = ax_kwargs.pop(
+        "yminorticks",
+        ax_kwargs.pop("minoryticks", None),
+    )
     xloc = ax_kwargs.pop("xloc", None)
     yloc = ax_kwargs.pop("yloc", None)
 
-    # set all values
+    # set all upper-axis values
     ax.set(**ax_kwargs)
 
-    # set manual configs
+    # set manual upper-axis configs
     if xminorticks is not None:
         ax.set_xticks(xminorticks, minor=True)
-    if yminorticks is not None:
-        ax.set_xticks(yminorticks, minor=True)
-    if xloc is not None:
-        ax.set_xlabel(ax.get_xlabel(), loc=xloc)
-    if yloc is not None:
-        ax.set_ylabel(ax.get_ylabel(), loc=yloc)
 
-    # ratio plot
+    if yminorticks is not None:
+        ax.set_yticks(yminorticks, minor=True)
+
+    if xloc is not None:
+        ax.set_xlabel(
+            ax.get_xlabel(),
+            loc=xloc,
+        )
+
+    if yloc is not None:
+        ax.set_ylabel(
+            ax.get_ylabel(),
+            loc=yloc,
+        )
+
+    # ------------------------------------------------------------------
+    # Lower ratio-axis styling
+    # ------------------------------------------------------------------
+
     if not skip_ratio:
-        # hard-coded line at 1
-        rax.axhline(y=1.0, linestyle="dashed", color="gray")
+
+        # Default lower-panel settings.
+        #
+        # These are overwritten by style_config["rax_cfg"].
+        ratio_log_y = (
+            style_config.get("rax_cfg", {}).get("yscale", "linear") == "log"
+        )
+
+        if ratio_log_y:
+            default_ratio_ylim = (1e-5, 1)
+        else:
+            default_ratio_ylim = (-0.05, 0.1) # (-0.05, 0.5)
         rax_kwargs = {
-            "ylim": (0.72, 1.28),
+            "ylim": default_ratio_ylim,
             "ylabel": "Ratio",
             "xlabel": "Variable",
             "yscale": "linear",
         }
-        rax_kwargs.update(style_config.get("rax_cfg", {}))
 
-        # some settings cannot be handled by ax.set
+        # Apply the settings from prepare_style_config().
+        #
+        # This supplies:
+        #   data_mc       -> Data / MC
+        #   s_over_b      -> S / B
+        #   s_over_sqrt_b -> S / sqrt(B)
+        #
+        # and also supplies the actual variable xlabel and the
+        # independently chosen lower-panel yscale.
+        rax_kwargs.update(
+            style_config.get("rax_cfg", {}),
+        )
+
+        # Some settings cannot be handled by rax.set()
         xloc = rax_kwargs.pop("xloc", None)
         yloc = rax_kwargs.pop("yloc", None)
 
-        # set all values
+        # Apply all lower-axis settings.
         rax.set(**rax_kwargs)
 
-        # set manual configs
+        # Manual lower-axis configs
         if xloc is not None:
-            rax.set_xlabel(rax.get_xlabel(), loc=xloc)
-        if yloc is not None:
-            rax.set_ylabel(rax.get_ylabel(), loc=yloc)
+            rax.set_xlabel(
+                rax.get_xlabel(),
+                loc=xloc,
+            )
 
-        # remove x-label from main axis
-        if "xlabel" in rax_kwargs:
+        if yloc is not None:
+            rax.set_ylabel(
+                rax.get_ylabel(),
+                loc=yloc,
+            )
+
+        # Only Data / MC gets a reference line at 1.
+        if ratio_mode == "data_mc":
+            rax.axhline(
+                y=1.0,
+                linestyle="dashed",
+                color="gray",
+            )
+
+        # The x label belongs on the lower/shared axis.
+        # Remove it from the upper axis.
+        if rax.get_xlabel():
             ax.set_xlabel("")
 
-    # label alignment
+    # ------------------------------------------------------------------
+    # Label alignment
+    # ------------------------------------------------------------------
+
     fig.align_labels()
 
-    # legend
+    # ------------------------------------------------------------------
+    # Upper-panel legend
+    # ------------------------------------------------------------------
+
     if not skip_legend:
-        # resolve legend kwargs
+
         legend_kwargs = {
             "ncols": 1,
             "loc": "upper right",
         }
-        legend_kwargs.update(style_config.get("legend_cfg", {}))
+
+        legend_kwargs.update(
+            style_config.get("legend_cfg", {}),
+        )
 
         if "title" in legend_kwargs:
-            legend_kwargs["title"] = remove_label_placeholders(legend_kwargs["title"])
+            legend_kwargs["title"] = remove_label_placeholders(
+                legend_kwargs["title"],
+            )
 
         # retrieve the legend handles and their labels
         handles, labels = ax.get_legend_handles_labels()
 
         # custom argument: entries_per_column
         n_cols = legend_kwargs.get("ncols", 1)
-        entries_per_col = legend_kwargs.pop("entries_per_column", None)
+
+        entries_per_col = legend_kwargs.pop(
+            "entries_per_column",
+            None,
+        )
+
         if callable(entries_per_col):
-            entries_per_col = entries_per_col(ax, handles, labels, n_cols)
+            entries_per_col = entries_per_col(
+                ax,
+                handles,
+                labels,
+                n_cols,
+            )
+
         if entries_per_col and n_cols > 1:
+
             if isinstance(entries_per_col, (list, tuple)):
                 assert len(entries_per_col) == n_cols
             else:
-                entries_per_col = [entries_per_col] * n_cols
+                entries_per_col = [
+                    entries_per_col
+                ] * n_cols
+
             # fill handles and labels with empty entries
             max_entries = max(entries_per_col)
-            empty_handle = ax.plot([], label="", linestyle="None")[0]
+
+            empty_handle = ax.plot(
+                [],
+                label="",
+                linestyle="None",
+            )[0]
+
             for i, n in enumerate(entries_per_col):
-                for _ in range(max_entries - min(n, len(handles) - sum(entries_per_col[:i]))):
-                    handles.insert(i * max_entries + n, empty_handle)
-                    labels.insert(i * max_entries + n, "")
+                for _ in range(
+                    max(
+                        0,
+                        max_entries
+                        - min(
+                            n,
+                            len(handles)
+                            - sum(entries_per_col[:i]),
+                        ),
+                    ),
+                ):
+                    handles.insert(
+                        i * max_entries + n,
+                        empty_handle,
+                    )
+                    labels.insert(
+                        i * max_entries + n,
+                        "",
+                    )
 
         # custom hook to adjust handles and labels
-        update_handles_labels = legend_kwargs.pop("update_handles_labels", None)
+        update_handles_labels = legend_kwargs.pop(
+            "update_handles_labels",
+            None,
+        )
+
         if callable(update_handles_labels):
-            update_handles_labels(ax, handles, labels, n_cols)
+            update_handles_labels(
+                ax,
+                handles,
+                labels,
+                n_cols,
+            )
 
-        # make legend using ordered handles/labels
-        ax.legend(handles, labels, **legend_kwargs)
+        # upper-panel legend only
+        ax.legend(
+            handles,
+            labels,
+            **legend_kwargs,
+        )
 
-    # custom annotation
-    log_x = style_config.get("ax_cfg", {}).get("xscale", "linear") == "log"
+    # ------------------------------------------------------------------
+    # Custom annotation
+    # ------------------------------------------------------------------
+
+    log_x = (
+        style_config.get("ax_cfg", {}).get("xscale", "linear")
+        == "log"
+    )
+
     annotate_kwargs = {
         "text": "",
         "xy": (
-            get_position(*ax.get_xlim(), factor=0.05, logscale=log_x),
-            get_position(*ax.get_ylim(), factor=0.95, logscale=log_y),
+            get_position(
+                *ax.get_xlim(),
+                factor=0.05,
+                logscale=log_x,
+            ),
+            get_position(
+                *ax.get_ylim(),
+                factor=0.95,
+                logscale=log_y,
+            ),
         ),
         "xycoords": "data",
         "color": "black",
@@ -363,17 +561,36 @@ def plot_all(
         "horizontalalignment": "left",
         "verticalalignment": "top",
     }
-    annotate_kwargs.update(style_config.get("annotate_cfg", {}))
+
+    annotate_kwargs.update(
+        style_config.get("annotate_cfg", {}),
+    )
+
     ax.annotate(**annotate_kwargs)
 
-    # cms label
+    # ------------------------------------------------------------------
+    # CMS label
+    # ------------------------------------------------------------------
+
     if cms_label != "skip":
-        cms_label_kwargs = get_cms_label(ax, cms_label)
 
-        cms_label_kwargs.update(style_config.get("cms_label_cfg", {}))
-        mplhep.cms.label(**cms_label_kwargs)
+        cms_label_kwargs = get_cms_label(
+            ax,
+            cms_label,
+        )
 
-    # finalization
+        cms_label_kwargs.update(
+            style_config.get("cms_label_cfg", {}),
+        )
+
+        mplhep.cms.label(
+            **cms_label_kwargs,
+        )
+
+    # ------------------------------------------------------------------
+    # Finalization
+    # ------------------------------------------------------------------
+
     fig.tight_layout()
 
     return fig, axs

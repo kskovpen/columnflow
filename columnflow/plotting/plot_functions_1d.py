@@ -48,34 +48,79 @@ def plot_variable_per_process(
     yscale: str | None = "",
     process_settings: dict | None = None,
     variable_settings: dict | None = None,
+    skip_ratio: bool | None = None,
+    ratio_mode: str = "data_mc",
+    ratio_yscale: str = "linear",
     **kwargs,
 ) -> plt.Figure:
     """
-    TODO: misleading function name, it should somehow contain "stack" and not "per_proceess"
+    TODO: misleading function name, it should somehow contain "stack"
+    and not "per_process".
     """
+    if skip_ratio is None:
+        skip_ratio = False
+
     remove_residual_axis(hists, "shift")
 
     variable_inst = variable_insts[0]
+
     blinding_threshold = kwargs.get("blinding_threshold", None)
 
     if blinding_threshold:
-        hists = blind_sensitive_bins(hists, config_inst, blinding_threshold)
-    hists = apply_variable_settings(hists, variable_insts, variable_settings)
-    hists = apply_process_settings(hists, process_settings)
-    hists = apply_density_to_hists(hists, density)
+        hists = blind_sensitive_bins(
+            hists,
+            config_inst,
+            blinding_threshold,
+        )
 
-    plot_config = prepare_stack_plot_config(hists, shape_norm=shape_norm, **kwargs)
-
-    default_style_config = prepare_style_config(
-        config_inst, category_inst, variable_inst, density, shape_norm, yscale,
+    hists = apply_variable_settings(
+        hists,
+        variable_insts,
+        variable_settings,
+    )
+    hists = apply_process_settings(
+        hists,
+        process_settings,
+    )
+    hists = apply_density_to_hists(
+        hists,
+        density,
     )
 
-    style_config = law.util.merge_dicts(default_style_config, style_config, deep=True)
+    plot_config = prepare_stack_plot_config(
+        hists,
+        shape_norm=shape_norm,
+        ratio_mode=ratio_mode,
+        **kwargs,
+    )
+
+    default_style_config = prepare_style_config(
+        config_inst,
+        category_inst,
+        variable_inst,
+        density,
+        shape_norm,
+        yscale,
+        ratio_mode=ratio_mode,
+        ratio_yscale=ratio_yscale,
+    )
+
+    style_config = law.util.merge_dicts(
+        default_style_config,
+        style_config,
+        deep=True,
+    )
+
     if shape_norm:
         style_config["ax_cfg"]["ylabel"] = r"$\Delta N/N$"
 
-    return plot_all(plot_config, style_config, **kwargs)
-
+    return plot_all(
+        plot_config,
+        style_config,
+        skip_ratio=skip_ratio,
+        ratio_mode=ratio_mode,
+        **kwargs,
+    )
 
 def plot_variable_variants(
     hists: OrderedDict,
@@ -246,7 +291,12 @@ def plot_cutflow(
     hists = hists_merge_cutflow_steps(hists)
 
     # setup plotting config
-    plot_config = prepare_stack_plot_config(hists, shape_norm=shape_norm, **kwargs)
+    plot_config = prepare_stack_plot_config(
+        hists,
+        shape_norm=shape_norm,
+        ratio_mode=ratio_mode,
+        **kwargs,
+    )
 
     if shape_norm:
         # switch normalization to normalizing to `initial step` bin
@@ -394,7 +444,14 @@ def plot_profile(
                     plot_cfg[key]["yerr"] = None
 
     default_style_config = prepare_style_config(
-        config_inst, category_inst, variable_insts[0], density=density, yscale=yscale,
+        config_inst,
+        category_inst,
+        variable_inst,
+        density,
+        shape_norm,
+        yscale,
+        ratio_mode=ratio_mode,
+        ratio_yscale=ratio_yscale,
     )
 
     default_style_config["ax_cfg"]["ylabel"] = f"profiled {variable_insts[1].x_title}"

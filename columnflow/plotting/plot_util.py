@@ -422,15 +422,21 @@ def prepare_style_config(
     density: bool | None = False,
     shape_norm: bool | None = False,
     yscale: str | None = "",
+    ratio_mode: str = "data_mc",
+    ratio_yscale: str = "linear",
 ) -> dict:
     """
-    small helper function that sets up a default style config based on the instances
-    of the config, category and variable
+    Small helper function that sets up a default style config based on the
+    instances of the config, category and variable.
     """
     if not yscale:
         yscale = "log" if variable_inst.log_y else "linear"
 
-    discrete_shift = (variable_inst.x_min if variable_inst.x_discrete else 0)
+    discrete_shift = (
+        variable_inst.x_min
+        if variable_inst.x_discrete
+        else 0
+    )
 
     xlim = (
         variable_inst.x("x_min", variable_inst.x_min) - discrete_shift,
@@ -438,58 +444,106 @@ def prepare_style_config(
     )
 
     # build the label from category and optional variable selection labels
-    cat_label = join_labels(category_inst.label, variable_inst.x("selection_label", None))
+    cat_label = join_labels(
+        category_inst.label,
+        variable_inst.x("selection_label", None),
+    )
 
-    # unit format on axes (could be configurable)
+    # unit format on axes
     unit_format = "{title} [{unit}]"
+
+    # lower-panel ylabel
+    if ratio_mode == "data_mc":
+        ratio_ylabel = "Data / MC"
+    elif ratio_mode == "s_over_b":
+        ratio_ylabel = r"$S / B$"
+    elif ratio_mode == "s_over_sqrt_b":
+        ratio_ylabel = r"$S / \sqrt{B}$"
+    elif ratio_mode == "s_over_s_plus_b":
+        ratio_ylabel = r"$S / (S+B)$"
+    else:
+        raise ValueError(
+            f"unknown ratio_mode '{ratio_mode}', expected one of "
+            "'data_mc', 's_over_b', 's_over_sqrt_b', 's_over_s_plus_b'",
+        )
+
+    # variable label used on the x axis of BOTH panels
+    variable_xlabel = variable_inst.get_full_x_title(
+        unit_format=unit_format,
+    )
 
     style_config = {
         "ax_cfg": {
             "xlim": xlim,
-            # TODO: need to make bin width and unit configurable in future
-            "ylabel": variable_inst.get_full_y_title(bin_width=False, unit=False, unit_format=unit_format),
-            "xlabel": variable_inst.get_full_x_title(unit_format=unit_format),
+            "ylabel": variable_inst.get_full_y_title(
+                bin_width=False,
+                unit=False,
+                unit_format=unit_format,
+            ),
+            "xlabel": variable_xlabel,
             "yscale": yscale,
             "xscale": "log" if variable_inst.log_x else "linear",
         },
+
         "rax_cfg": {
-            "ylabel": "Data / MC",
-            "xlabel": variable_inst.get_full_x_title(unit_format=unit_format),
+            "ylabel": ratio_ylabel,
+            "xlabel": variable_xlabel,
+            "yscale": ratio_yscale,
         },
+
         "legend_cfg": {},
-        "annotate_cfg": {"text": cat_label or ""},
+
+        "annotate_cfg": {
+            "text": cat_label or "",
+        },
+
         "cms_label_cfg": {
-            "lumi": f"{0.001 * config_inst.x.luminosity.get('nominal'):.1f}",  # /pb -> /fb
+            "lumi": (
+                f"{0.001 * config_inst.x.luminosity.get('nominal'):.1f}"
+            ),
             "com": config_inst.campaign.ecm,
         },
     }
 
     # disable minor ticks based on variable_inst
     axis_type = variable_inst.x("axis_type", "variable")
+
     if variable_inst.discrete_x or "int" in axis_type:
-        # remove the "xscale" attribute since it messes up the bin edges
+        # remove xscale since it messes up discrete bin edges
         style_config["ax_cfg"].pop("xscale")
         style_config["ax_cfg"]["minorxticks"] = []
+
     if variable_inst.discrete_y:
         style_config["ax_cfg"]["minoryticks"] = []
 
     return style_config
 
-
 def prepare_stack_plot_config(
     hists: OrderedDict,
     shape_norm: bool | None = False,
     hide_errors: bool | None = None,
+    ratio_mode: str = "data_mc",
     **kwargs,
 ) -> OrderedDict:
     """
     Prepares a plot config with one entry to create plots containing a stack of
-    backgrounds with uncertainty bands, unstacked processes as lines and
-    data entrys with errorbars.
+    backgrounds with uncertainty bands, unstacked processes as lines and data
+    entries with errorbars.
+
+    In addition to the default Data/MC ratio, signal processes with
+    ``signal=True`` are plotted individually in the lower panel as either
+    S/B or S/sqrt(B), depending on ``ratio_mode``.
     """
-    # separate histograms into stack, lines and data hists
+    if ratio_mode not in {"data_mc", "s_over_b", "s_over_sqrt_b", "s_over_s_plus_b",}:
+        raise ValueError(
+            f"unknown ratio_mode '{ratio_mode}', expected one of "
+            "'data_mc', 's_over_b', 's_over_sqrt_b', 's_over_s_plus_b'"
+        )
+
+    # separate histograms into stack, lines, signals and data hists
     mc_hists, mc_colors, mc_edgecolors, mc_labels = [], [], [], []
     line_hists, line_colors, line_labels, line_hide_errors = [], [], [], []
+    signal_hists, signal_colors = [], []
     data_hists, data_hide_errors = [], []
     data_label = None
 
@@ -498,26 +552,40 @@ def prepare_stack_plot_config(
         proc_hide_errors = hide_errors
         if getattr(process_inst, "hide_errors", None) is not None:
             proc_hide_errors = process_inst.hide_errors
+
         if process_inst.is_data:
             data_hists.append(h)
             data_hide_errors.append(proc_hide_errors)
+
             if data_label is None:
                 data_label = process_inst.label
+
         elif process_inst.is_mc:
+            # collect signal processes separately for the lower panel
+            if getattr(process_inst, "signal", False):
+                signal_hists.append(h)
+                signal_colors.append(process_inst.color1)
+
+            # unstacked processes are drawn as lines in the upper panel
             if getattr(process_inst, "unstack", False):
                 line_hists.append(h)
                 line_colors.append(process_inst.color1)
                 line_labels.append(process_inst.label)
                 line_hide_errors.append(proc_hide_errors)
+
+            # all stacked MC processes contribute to the background stack
             else:
                 mc_hists.append(h)
                 mc_colors.append(process_inst.color1)
                 mc_edgecolors.append(process_inst.color2)
                 mc_labels.append(process_inst.label)
 
+    # combine data and MC histograms
     h_data, h_mc, h_mc_stack = None, None, None
+
     if data_hists:
         h_data = sum(data_hists[1:], data_hists[0].copy())
+
     if mc_hists:
         h_mc = sum(mc_hists[1:], mc_hists[0].copy())
         h_mc_stack = hist.Stack(*mc_hists)
@@ -525,9 +593,10 @@ def prepare_stack_plot_config(
     # setup plotting configs
     plot_config = OrderedDict()
 
-    # draw stack
+    # draw MC stack
     if h_mc_stack is not None:
         mc_norm = sum(h_mc.values()) if shape_norm else 1
+
         plot_config["mc_stack"] = {
             "method": "draw_stack",
             "hist": h_mc_stack,
@@ -540,9 +609,10 @@ def prepare_stack_plot_config(
             },
         }
 
-    # draw lines
+    # draw unstacked processes as lines
     for i, h in enumerate(line_hists):
         line_norm = sum(h.values()) if shape_norm else 1
+
         plot_config[f"line_{i}"] = plot_cfg = {
             "method": "draw_hist",
             "hist": h,
@@ -551,31 +621,101 @@ def prepare_stack_plot_config(
                 "label": line_labels[i],
                 "color": line_colors[i],
             },
-            # "ratio_kwargs": {
-            #     "norm": h.values(),
-            #     "color": line_colors[i],
-            # },
         }
 
-        # suppress error bars by overriding `yerr`
+        # suppress error bars by overriding yerr
         if line_hide_errors[i]:
             for key in ("kwargs", "ratio_kwargs"):
                 if key in plot_cfg:
                     plot_cfg[key]["yerr"] = False
 
-    # draw stack error
+    # draw MC statistical uncertainty
     if h_mc_stack is not None and not hide_errors:
         mc_norm = sum(h_mc.values()) if shape_norm else 1
+
         plot_config["mc_uncert"] = {
             "method": "draw_error_bands",
             "hist": h_mc,
-            "kwargs": {"norm": mc_norm, "label": "MC stat. unc."},
-            "ratio_kwargs": {"norm": h_mc.values()},
+            "kwargs": {
+                "norm": mc_norm,
+                "label": "MC stat. unc.",
+            },
+            "ratio_kwargs": {
+                "norm": h_mc.values(),
+            },
         }
 
-    # draw data
+    # ------------------------------------------------------------------
+    # lower panel: signal / background ratios
+    # ------------------------------------------------------------------
+    if ratio_mode in {"s_over_b", "s_over_sqrt_b", "s_over_s_plus_b"}:
+        if not signal_hists:
+            raise ValueError(
+                f"ratio_mode '{ratio_mode}' requires at least one signal process"
+            )
+
+        if h_mc is None:
+            raise ValueError(
+                f"ratio_mode '{ratio_mode}' requires at least one background process"
+            )
+
+        # summed background histogram
+        background = h_mc.values()
+        safe_background = np.where(background > 0, background, np.nan)
+
+        if ratio_mode == "s_over_b":
+            ratio_norm = safe_background
+
+        elif ratio_mode == "s_over_sqrt_b":
+            ratio_norm = np.sqrt(safe_background)
+
+        elif ratio_mode == "s_over_s_plus_b":
+            for i, h_signal in enumerate(signal_hists):
+                signal = h_signal.values()
+                signal_plus_background = signal + background
+
+                ratio_norm = np.where(
+                    signal_plus_background > 0,
+                    signal_plus_background,
+                    np.nan,
+                )
+
+                plot_config[f"signal_ratio_{i}"] = {
+                    "method": "draw_hist",
+                    "hist": h_signal,
+                    "ratio_kwargs": {
+                        "norm": ratio_norm,
+                        "color": signal_colors[i],
+                    },
+                    "ratio_only": True,
+                }
+
+            # Avoid adding the same signal curves again below.
+            signal_hists = []
+
+        if ratio_mode == "s_over_b":
+            ratio_norm = safe_background
+        else:
+            ratio_norm = np.sqrt(safe_background)
+
+        # each signal gets its own curve in the lower panel
+        for i, h_signal in enumerate(signal_hists):
+            plot_config[f"signal_ratio_{i}"] = {
+                "method": "draw_hist",
+                "hist": h_signal,
+                "ratio_kwargs": {
+                    "norm": ratio_norm,
+                    "color": signal_colors[i],
+                },
+                "ratio_only": True,
+            }
+
+    # ------------------------------------------------------------------
+    # data
+    # ------------------------------------------------------------------
     if data_hists:
         data_norm = sum(h_data.values()) if shape_norm else 1
+
         plot_config["data"] = plot_cfg = {
             "method": "draw_errorbars",
             "hist": h_data,
@@ -585,12 +725,14 @@ def prepare_stack_plot_config(
             },
         }
 
-        if h_mc is not None:
+        # default lower-panel ratio: Data / MC
+        if h_mc is not None and ratio_mode == "data_mc":
             plot_config["data"]["ratio_kwargs"] = {
                 "norm": h_mc.values() * data_norm / mc_norm,
+                "label": "Data / MC",
             }
 
-        # suppress error bars by overriding `yerr`
+        # suppress error bars by overriding yerr
         if any(data_hide_errors):
             for key in ("kwargs", "ratio_kwargs"):
                 if key in plot_cfg:

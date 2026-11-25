@@ -40,6 +40,7 @@ coffea = maybe_import("coffea")
 def TetraVec(arr: ak.Array, prefix: str = "", keep: Sequence | str | Literal[-1] = -1,) -> ak.Array:
     components = ("pt", "eta", "phi", "mass")
     fields = tuple(f"{prefix}{c}" for c in components)
+    # FIXME: this could be modified in a similar way to four_vec
 
     if not all(f in arr.fields for f in fields):
         raise ValueError(f"Missing required fields: {fields}")
